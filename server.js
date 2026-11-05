@@ -26,6 +26,8 @@ const SSH_HOST = process.env.SSH_HOST || '127.0.0.1';
 const SSH_PORT = +process.env.SSH_PORT || 22;
 const PUBLIC_HOST = process.env.PUBLIC_HOST || '';
 const DEFAULT_USER = process.env.DEFAULT_USER || os.userInfo().username;
+const ALLOWED_USERS = (process.env.ALLOWED_USERS || '').split(',').map((s) => s.trim()).filter(Boolean);   // empty = any user sshd accepts
+const WEB_LOGIN = process.env.WEB_LOGIN !== '0';   // 0 = disable every route where this server handles the password (/term, /raw, /t/*)
 const LOOPBACK = ['127.0.0.1', '::1', 'localhost'].includes(BIND);
 const TRUST_PROXY_IP = process.env.TRUST_PROXY_IP ? process.env.TRUST_PROXY_IP === '1' : LOOPBACK;
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
@@ -39,7 +41,7 @@ const STATIC = {
   '/fit.js': [path.join(NM, '@xterm/addon-fit/lib/addon-fit.js'), 'application/javascript'],
 };
 const SCRIPTS = {
-  '/c': 'c.sh', '/t': 'term.sh', '/s': 'setup.sh', '/s.ps1': 'setup.ps1', '/p.sh': 'proxy.sh', '/p.ps1': 'proxy.ps1',
+  '/c': 'c.sh', '/w': 'w.ps1', '/t': 'term.sh', '/s': 'setup.sh', '/s.ps1': 'setup.ps1', '/p.sh': 'proxy.sh', '/p.ps1': 'proxy.ps1',
 };
 
 // ---- host key (for pinning in /c) ----
@@ -68,7 +70,8 @@ async function ensureHostKey() {
 }
 
 function render(name, host, key) {
-  const t = fs.readFileSync(path.join(__dirname, 'client', name), 'utf8').split('\r\n').join('\n');   // CRLF checkouts must not break sh
+  const read = (n) => fs.readFileSync(path.join(__dirname, 'client', n), 'utf8').split('\r\n').join('\n');   // CRLF checkouts must not break sh
+  const t = read(name).split('{{PROXY_PS1}}').join(name === 'w.ps1' ? read('proxy.ps1').trimEnd() : '');
   return t.split('{{HOST}}').join(host).split('{{USER}}').join(DEFAULT_USER)
           .split('{{HOSTKEY}}').join(key || '').split('{{FINGERPRINT}}').join(hostFp || '');
 }
@@ -103,6 +106,7 @@ function closeSession(id) { const s = sessions.get(id); if (!s) return; sessions
 function sshLogin(user, pass, cols, rows, { onShell, onFail }) {
   const conn = new Client(); let done = false;
   const fail = (why) => { if (done) return; done = true; try { conn.end(); } catch {} onFail(why); };
+  if (ALLOWED_USERS.length && !ALLOWED_USERS.includes(String(user))) { setImmediate(() => fail('user-not-allowed')); return conn; }
   conn.on('error', (e) => { if (done) return; fail(e.level || e.code || 'err'); });
   conn.on('ready', () => conn.shell({ term: 'xterm-256color', cols: Math.min(+cols || 80, 500), rows: Math.min(+rows || 24, 200) }, (err, shell) => {
     if (err || done) return fail('shell');
@@ -156,7 +160,7 @@ function handleStream(req, res, p, q) {
 // ---- HTTP ----
 const server = http.createServer(async (req, res) => {
   const p = (req.url || '/').split('?')[0];
-  if (p.startsWith('/t/')) return handleStream(req, res, p, new URL(req.url, 'http://x').searchParams);
+  if (p.startsWith('/t/')) return WEB_LOGIN ? handleStream(req, res, p, new URL(req.url, 'http://x').searchParams) : text(res, 404, '');
   if (req.method !== 'GET') return text(res, 404, '');
   const hdr = (type, len) => ({ 'Content-Type': type, 'Content-Length': len, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
   try {
@@ -247,6 +251,7 @@ function rawShell(req, socket, head, accept) {
 server.on('upgrade', (req, socket, head) => {
   socket.on('error', () => {});
   const p = (req.url || '/').split('?')[0];
+  if ((p === '/term' || p === '/raw') && !WEB_LOGIN) return socket.destroy();
   if (p === '/term') {
     const o = req.headers.origin;
     try { if (o && new URL(o).host !== req.headers.host) return socket.destroy(); } catch { return socket.destroy(); }
@@ -271,4 +276,10 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 server.requestTimeout = 0; server.timeout = 0; server.keepAliveTimeout = 65000;   // long-lived streaming requests
-server.listen(PORT, BIND, () => { log(`ssh-over-websocket on ${BIND}:${PORT} -> sshd ${SSH_HOST}:${SSH_PORT}`); ensureHostKey().catch(() => {}); });
+if (require.main === module) {
+  server.listen(PORT, BIND, () => {
+    log(`ssh-over-websocket on ${BIND}:${PORT} -> sshd ${SSH_HOST}:${SSH_PORT}` + (WEB_LOGIN ? '' : ' (password routes disabled)') + (ALLOWED_USERS.length ? ` (users: ${ALLOWED_USERS.join(',')})` : ''));
+    ensureHostKey().catch(() => {});
+  });
+}
+module.exports = { server, render, describeKey, isBlocked, recordFail, overRate, ipOf, _state: () => ({ hostFp }) };

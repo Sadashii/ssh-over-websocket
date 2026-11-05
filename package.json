@@ -3,11 +3,26 @@
   "version": "1.0.0",
   "description": "SSH into a machine behind NAT through a Cloudflare Tunnel or any HTTP reverse proxy, from a browser, curl, or a stock ssh client.",
   "main": "server.js",
-  "bin": { "ssh-over-websocket": "server.js" },
-  "scripts": { "start": "node server.js" },
+  "bin": {
+    "ssh-over-websocket": "server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
   "license": "MIT",
-  "engines": { "node": ">=18" },
-  "keywords": ["ssh", "websocket", "cloudflare-tunnel", "cloudflared", "nat", "terminal", "proxycommand"],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "ssh",
+    "websocket",
+    "cloudflare-tunnel",
+    "cloudflared",
+    "nat",
+    "terminal",
+    "proxycommand"
+  ],
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",

@@ -38,6 +38,22 @@ Then you hit the wall:
 
 A bare `ssh you@host` on a device with no setup cannot work without a public-IP host. This project removes the setup instead: **every route below needs one pasted line at most and installs nothing.**
 
+## 🆚 How it compares
+
+Pick the tool that fits. Details below are as of writing; check each project for current terms.
+
+| Option | Client needs | Extra host | Cost | Trade-off |
+|---|---|---|---|---|
+| **ssh-over-websocket** | `curl`/`ssh`/`openssl`, a browser, or PowerShell + `ssh.exe` | None | Free | Latency from the Cloudflare hop; password-based by design; you run one small Node server |
+| `cloudflared access ssh` | `cloudflared` installed | None | Free tier | Software on every client; Access login if you use browser-rendered SSH |
+| Tailscale | Tailscale app and account | None | Free for personal use | Every device joins your tailnet; the best fit when you control every client |
+| wstunnel | A `wstunnel` binary on the client | None | Free | General-purpose and fast; needs its binary on every client |
+| VPS + reverse SSH tunnel (autossh) | Plain `ssh -p` | A public-IP server | Server cost | Cleanest result; you rent and secure a machine |
+| Cloudflare Spectrum | Plain `ssh` | None | Paid plan | The only way to get a truly bare `ssh user@host`; check current plan and pricing |
+| Hosted TCP tunnels (ngrok, bore, ...) | Plain `ssh -p <port>` | Third-party relay | Varies | Your SSH port is exposed on someone else's host |
+
+**Use this project when** you cannot install anything on the client, have no public-IP machine, and already use (or can use) a Cloudflare Tunnel. **Use Tailscale when** you control every device you connect from.
+
 ## ✨ Why you will like it
 
 | | Benefit |
@@ -93,7 +109,8 @@ The client opens a TLS connection and sends a normal WebSocket upgrade request. 
 | Fast terminal | `curl -s ssh.example.com \| bash` | `bash`, `curl`, `openssl` (optional) |
 | Browser | open `https://ssh.example.com` | a browser |
 | Permanent `ssh user@host` | `curl -fsSL ssh.example.com/s \| sh` once | `sh`, `ssh`, `openssl` |
-| Same on Windows | `irm ssh.example.com/s.ps1 \| iex` once | PowerShell 5.1+, OpenSSH client |
+| Real ssh on Windows, nothing installed | `irm ssh.example.com/w \| iex` | PowerShell 5.1+ or 7, built-in `ssh.exe` |
+| Permanent `ssh user@host` on Windows | `irm ssh.example.com/s.ps1 \| iex` once | PowerShell 5.1+, OpenSSH client |
 
 Pass a command to `/c` like you would to `ssh`: `curl -s ssh.example.com/c | sh -s -- uptime`.
 
@@ -118,6 +135,8 @@ ssh -o ProxyCommand="sh -c \"{ printf 'GET / HTTP/1.1\r\nHost: ssh.example.com\r
 | `DEFAULT_USER` | current OS user | Login name suggested by the scripts and the web page. |
 | `SSH_HOSTKEY` | detected from sshd | `ssh-ed25519 AAAA...` line to pin in `/c`. Set it if auto-detection fails. |
 | `TRUST_PROXY_IP` | `1` when `BIND` is loopback | Read the client IP from `cf-connecting-ip` / `x-forwarded-for`. |
+| `ALLOWED_USERS` | any | Comma-separated logins this server will attempt on the browser, `curl` and `/raw` routes. Keep `AllowUsers` in sshd too: the raw SSH bridge never reads the username. |
+| `WEB_LOGIN` | `1` | Set `0` to disable every route where this server handles the password (`/term`, `/raw`, `/t/*`). Only the end-to-end routes (`/c`, `/w`, `/s`) remain, and Cloudflare never sees the password. |
 
 ### Security model
 
@@ -130,6 +149,17 @@ ssh -o ProxyCommand="sh -c \"{ printf 'GET / HTTP/1.1\r\nHost: ssh.example.com\r
 | Exposure | Anyone who knows the hostname can reach the password prompt. Use a dedicated low-privilege account, `AllowUsers`, and `MaxAuthTries 3`. |
 | Account power | A stolen password can do whatever the account can do. Avoid administrator accounts unless you accept that. |
 
+### Threat model
+
+| Question | Answer |
+|---|---|
+| Who can attempt a login? | Anyone who knows the hostname. The prompt is public. |
+| What stops guessing? | A strong passphrase, sshd `MaxAuthTries`, the OS account lockout, and this server's per-IP block (5 failures, 15 minutes) and rate limit (12 connections per minute). Behind a shared NAT or proxy, one address can lock out everyone behind it. |
+| What does a stolen password give? | Everything that account can do. Use a dedicated low-privilege account, not an administrator. |
+| What if the proxy is hostile? | `/c` and `/w` pin the host key, so a proxy cannot impersonate your sshd. It can still see metadata and block traffic. On the browser and `curl \| bash` routes it sees the password. |
+| What if the script host is hostile? | You pipe a script from that host into `sh`. Whoever controls the server or the hostname controls what runs on your client. Read the script first: `curl -s ssh.example.com/c`. |
+| Hardest setting | `WEB_LOGIN=0` plus `ALLOWED_USERS` plus key-only sshd for everything except the account you use. |
+
 ### Honest limits
 
 | Limit | Detail |
@@ -138,8 +168,9 @@ ssh -o ProxyCommand="sh -c \"{ printf 'GET / HTTP/1.1\r\nHost: ssh.example.com\r
 | Latency | About 0.3 s per keystroke round trip. Roughly 1 in 10 connections stalls ~20 s at the Cloudflare edge; retry. |
 | The machine must be online | The tunnel and this server must be running. |
 | Resize | The `curl \| bash` terminal sends the window size once, at login. |
-| Windows client | Plain Windows needs the PowerShell helper (`/s.ps1`); `/c` needs `sh` (Git Bash or WSL work). |
-| Tested with | Windows 11 server (OpenSSH for Windows 9.x, PowerShell 7) behind a Cloudflare Tunnel; clients on Ubuntu (WSL), Git Bash, and Windows PowerShell. |
+| Windows client | Use `irm .../w \| iex`. `/c` needs `sh` (Git Bash or WSL work). |
+| Not tested | macOS clients and servers; Linux servers behind a real Cloudflare Tunnel (tested locally only). Reports welcome. |
+| Tested with | Windows 11 server (OpenSSH for Windows 9.x, PowerShell 7) behind a Cloudflare Tunnel; Ubuntu 26.04 server (OpenSSH 10.2) from a fresh clone, locally; clients on Ubuntu (WSL), Git Bash, PowerShell 7, and Windows PowerShell 5.1. |
 
 ### Troubleshooting
 
@@ -150,6 +181,13 @@ ssh -o ProxyCommand="sh -c \"{ printf 'GET / HTTP/1.1\r\nHost: ssh.example.com\r
 | `HTTP 400` or a hang right after connecting | The request did not reach this server. Check the tunnel ingress and the DNS record. |
 | `Login failed` with the right password | Check `AllowUsers`, the account's lockout state, and `PasswordAuthentication yes`. |
 
+## 🧪 Development
+
+```bash
+npm install
+npm test        # unit and route tests, no network or sshd needed
+```
+
 ## 🗺️ Roadmap
 
 Ideas, not promises. Star the repo to follow along.
@@ -159,7 +197,9 @@ Ideas, not promises. Star the repo to follow along.
 - [x] One-line `curl | sh` with host key pinning
 - [x] Host key auto-detection
 - [x] Failed-login blocking and connection-rate limits
-- [ ] Windows one-liner that needs no `sh` or `openssl`
+- [x] Windows one-liner that needs no `sh` or `openssl`
+- [x] `ALLOWED_USERS` and `WEB_LOGIN=0` hardening switches
+- [x] Automated tests (`npm test`)
 - [ ] Terminal resize for the `curl | bash` route
 - [ ] systemd unit and Windows service installer
 - [ ] Optional TOTP second factor on the web routes
