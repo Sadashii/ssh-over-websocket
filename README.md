@@ -9,8 +9,7 @@
 [![Stars](https://img.shields.io/github/stars/Sadashii/ssh-over-websocket?style=flat&logo=github)](https://github.com/Sadashii/ssh-over-websocket/stargazers)
 [![Issues](https://img.shields.io/github/issues/Sadashii/ssh-over-websocket)](https://github.com/Sadashii/ssh-over-websocket/issues)
 
-<!-- Add a terminal GIF here: docs/demo.gif -->
-<!-- <img src="docs/demo.gif" alt="ssh-over-websocket demo" width="720"> -->
+<img src="docs/demo.gif" alt="ssh-over-websocket demo" width="720">
 
 ```bash
 curl -s ssh.example.com/c | sh
