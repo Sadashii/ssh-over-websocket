@@ -68,7 +68,7 @@ async function ensureHostKey() {
 }
 
 function render(name, host, key) {
-  let t = fs.readFileSync(path.join(__dirname, 'client', name), 'utf8');
+  const t = fs.readFileSync(path.join(__dirname, 'client', name), 'utf8').split('\r\n').join('\n');   // CRLF checkouts must not break sh
   return t.split('{{HOST}}').join(host).split('{{USER}}').join(DEFAULT_USER)
           .split('{{HOSTKEY}}').join(key || '').split('{{FINGERPRINT}}').join(hostFp || '');
 }
