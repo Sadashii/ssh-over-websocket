@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>terminal</title>
+<link rel="stylesheet" href="/xterm.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #0d1117; color: #e6edf3; font: 15px system-ui, sans-serif; }
+  #login { max-width: 320px; margin: 18vh auto 0; padding: 0 16px; }
+  #login h1 { font-size: 18px; font-weight: 600; margin: 0 0 14px; }
+  input, button { width: 100%; box-sizing: border-box; padding: 10px 12px; margin: 0 0 10px; font: inherit; border-radius: 6px; border: 1px solid #30363d; background: #161b22; color: inherit; }
+  button { background: #238636; border-color: #238636; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  #err { color: #f85149; min-height: 1.3em; font-size: 13px; }
+  #term { display: none; position: fixed; inset: 0; padding: 6px; }
+</style>
+</head>
+<body>
+<form id="login" autocomplete="off">
+  <h1>Sign in</h1>
+  <input id="user" value="{{USER}}" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="user">
+  <input id="pass" type="password" placeholder="password" autocomplete="off" autofocus aria-label="password">
+  <button id="go" type="submit">Connect</button>
+  <div id="err"></div>
+</form>
+<div id="term"></div>
+<script src="/xterm.js"></script>
+<script src="/fit.js"></script>
+<script>
+(function () {
+  var form = document.getElementById('login'), err = document.getElementById('err'), go = document.getElementById('go');
+  var termEl = document.getElementById('term'), term, fit, ws;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var pass = document.getElementById('pass').value, user = document.getElementById('user').value;
+    err.textContent = ''; go.disabled = true;
+    term = new Terminal({ cursorBlink: true, fontSize: 15, theme: { background: '#0d1117' } });
+    fit = new FitAddon.FitAddon(); term.loadAddon(fit);
+    termEl.style.display = 'block'; term.open(termEl); fit.fit();
+    termEl.style.display = 'none';
+    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/term');
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = function () { ws.send(JSON.stringify({ t: 'auth', user: user, pass: pass, cols: term.cols, rows: term.rows })); document.getElementById('pass').value = ''; };
+    ws.onmessage = function (ev) {
+      if (typeof ev.data === 'string') {
+        var m = JSON.parse(ev.data);
+        if (m.t === 'ok') {
+          form.style.display = 'none'; termEl.style.display = 'block'; fit.fit(); term.focus();
+          ws.send(JSON.stringify({ t: 'r', cols: term.cols, rows: term.rows }));
+        } else if (m.t === 'err') { err.textContent = m.m; go.disabled = false; }
+      } else { term.write(new Uint8Array(ev.data)); }
+    };
+    ws.onclose = function () {
+      if (termEl.style.display === 'block') { term.write('\r\n\x1b[90m[connection closed - reload to sign in again]\x1b[0m\r\n'); }
+      else { go.disabled = false; if (!err.textContent) err.textContent = 'Connection closed.'; }
+    };
+    term.onData(function (d) { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'd', d: d })); });
+    window.addEventListener('resize', function () { if (termEl.style.display === 'block') { fit.fit(); if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'r', cols: term.cols, rows: term.rows })); } });
+  });
+})();
+</script>
+</body>
+</html>

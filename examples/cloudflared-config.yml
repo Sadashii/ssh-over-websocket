@@ -1,0 +1,7 @@
+# ~/.cloudflared/config.yml  (Windows: C:\Users\<you>\.cloudflared\config.yml)
+tunnel: <your-tunnel-id>
+credentials-file: <path-to-credentials>.json
+ingress:
+  - hostname: ssh.example.com        # the name your clients will use
+    service: http://127.0.0.1:7722   # ssh-over-websocket
+  - service: http_status:404
